@@ -8,15 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/coreos/go-oidc"
-	"github.com/pkg/browser"
-	"github.com/spf13/cobra"
-	"golang.org/x/oauth2"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"time"
+
+	"github.com/coreos/go-oidc"
+	"github.com/spf13/cobra"
+	"golang.org/x/oauth2"
 )
 
 const exampleAppState = "state"
@@ -128,20 +129,19 @@ func cmd() *cobra.Command {
 			authCodeURL := a.getAuthCodeURL(false)
 			a.server = &http.Server{Addr: fmt.Sprintf(":%d", a.listenPort), Handler: nil}
 			go func() {
-				http.ListenAndServe(fmt.Sprintf(":%d", a.listenPort),nil);
+				http.ListenAndServe(fmt.Sprintf(":%d", a.listenPort), nil)
 			}()
-			err = browser.OpenURL(authCodeURL)
-			if (err == nil) {
+			err = runCmd("xdg-open", authCodeURL)
+			if err == nil {
 				fmt.Printf("Your browser has been opened to visit: \n%s", authCodeURL)
-				select{};
+				select {}
 			} else {
 				authCodeURL := a.getAuthCodeURL(true)
-				fmt.Printf("error: %v", err)
 				fmt.Printf("Go to the following link in your browser: \n%s\nEnter verification code:", authCodeURL)
 				var code string
 				var configFile string
 				fmt.Scanln(&code)
-				configFile, err = a.createConfig(ctx, code, "", "")
+				configFile, err = a.createConfig(true, ctx, code, "", "")
 				if err != nil {
 					fmt.Printf("Error when updating kubeconfig entry: %v\n", err)
 					os.Exit(1)
@@ -163,7 +163,7 @@ func cmd() *cobra.Command {
 
 func (a *app) oauth2Config(scopes []string, isOOB bool) *oauth2.Config {
 	var redirectURL string
-	if (isOOB) {
+	if isOOB {
 		redirectURL = "urn:ietf:wg:oauth:2.0:oob"
 	} else {
 		redirectURL = fmt.Sprintf("http://localhost:%d/", a.listenPort)
@@ -177,9 +177,14 @@ func (a *app) oauth2Config(scopes []string, isOOB bool) *oauth2.Config {
 	}
 }
 
+func runCmd(prog string, args ...string) error {
+	cmd := exec.Command(prog, args...)
+	return cmd.Run()
+}
+
 func (a *app) getAuthCodeURL(isOOB bool) string {
 	var authCodeURL string
-	scopes := []string{"openid", "profile", "email", "groups", "offline_access"}
+	scopes := []string{"openid", "profile", "email", "groups"}
 	if a.offlineAsScope {
 		scopes = append(scopes, "offline_access")
 		authCodeURL = a.oauth2Config(scopes, isOOB).AuthCodeURL(exampleAppState)
@@ -226,7 +231,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("method not implemented: %s", r.Method), http.StatusBadRequest)
 		return
 	}
-	configFile, err = a.createConfig(ctx, code, state, refresh)
+	configFile, err = a.createConfig(false, ctx, code, state, refresh)
 	if err != nil {
 		fmt.Fprintf(w, "Error when updating kubeconfig entry: %v\n", err)
 		fmt.Printf("Error when updating kubeconfig entry: %v\n", err)
@@ -245,13 +250,13 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *app) createConfig(ctx context.Context, code string, state string, refresh string) (string, error) {
+func (a *app) createConfig(isOOB bool, ctx context.Context, code string, state string, refresh string) (string, error) {
 	var (
 		err   error
 		token *oauth2.Token
 	)
 
-	oauth2Config := a.oauth2Config(nil, false)
+	oauth2Config := a.oauth2Config(nil, isOOB)
 	if code != "" {
 		token, err = oauth2Config.Exchange(ctx, code)
 	} else if refresh != "" {

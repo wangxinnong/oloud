@@ -59,10 +59,6 @@
 
 [[dependencies]]
   branch = "master"
-  name = "github.com/pkg/browser"
-
-[[dependencies]]
-  branch = "master"
   name = "github.com/spf13/cobra"
 
 [[dependencies]]
